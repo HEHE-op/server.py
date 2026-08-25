@@ -5,10 +5,10 @@ import werkzeug.security as security
 
 app = Flask(__name__)
 
-# FIX: Allow all origins to eliminate CORS blocks from Netlify
+# Allow all origins to eliminate CORS blocks from Netlify
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-# In-memory user storage fallback (Replace with DB connection if needed)
+# In-memory user storage
 users_db = {}
 
 @app.route("/", methods=["GET"])
@@ -18,6 +18,14 @@ def home():
 @app.route("/ping", methods=["GET"])
 def ping():
     return jsonify({"status": "ok"}), 200
+
+@app.route("/version", methods=["GET"])
+def version():
+    return jsonify({
+        "status": "ok",
+        "version": "1.0.0",
+        "app_name": "GD Studios Auth API"
+    }), 200
 
 @app.route("/register", methods=["POST"])
 def register():
