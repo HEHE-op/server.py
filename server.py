@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from passlib.context import CryptContext
 import jwt
@@ -8,19 +9,26 @@ import os
 import sqlite3
 
 app = FastAPI()
+
+# Enable CORS for Netlify and localhost
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows requests from Netlify and all origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 # Load from environment, not hardcoded. Set this in Render's Environment tab:
-#   Key: JWT_SECRET   Value: any long random string
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-fallback-change-me")
 ALGORITHM = "HS256"
 TOKEN_LIFETIME_DAYS = 30
 
-# Bump this string every time you release a new build.
-# The app checks this endpoint on launch to see if it's out of date.
 LATEST_VERSION = "1.2.0"
-DOWNLOAD_URL = "https://gd-studios.netlify.app/#downloads"  # point at wherever BeastAI_Setup.exe lives
+DOWNLOAD_URL = "https://gd-studios.netlify.app/#downloads"
 
 DB_FILE = "beast_ai_users.db"
 
@@ -52,9 +60,6 @@ def create_token(username: str, ip: str) -> str:
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security), request: Request = None):
-    """Dependency for protected routes. Checks the token is valid, not
-    expired, AND that the request's current IP matches the IP the token
-    was issued for — forces re-login if the IP has changed."""
     token = credentials.credentials
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -67,7 +72,24 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security), 
     if payload.get("ip") != current_ip:
         raise HTTPException(status_code=401, detail="IP changed — please log in again.")
 
-    return payload["sub"]  # the username
+    return payload["sub"]
+
+
+# FIX: Added Root route so GET / doesn't throw handling errors
+@app.get("/")
+def read_root():
+    return {"status": "active", "message": "GD Studios FastAPI Backend is running!"}
+
+
+# FIX: Keep-alive endpoint for UptimeRobot
+@app.get("/ping")
+def ping():
+    return {"status": "ok"}
+
+
+@app.get("/version")
+def get_version():
+    return {"latest_version": LATEST_VERSION, "download_url": DOWNLOAD_URL}
 
 
 @app.post("/register")
@@ -107,17 +129,8 @@ def login(data: AuthData, request: Request):
     return {"token": token, "message": "Login successful!"}
 
 
-@app.get("/version")
-def get_version():
-    """Public — no login required. The app calls this on launch to check
-    if a newer build is available."""
-    return {"latest_version": LATEST_VERSION, "download_url": DOWNLOAD_URL}
-
-
 @app.get("/me")
 def get_current_user(username: str = Depends(verify_token)):
-    """Example protected route — proves the token/IP check actually works.
-    Any route that should require login uses `Depends(verify_token)` like this."""
     return {"username": username, "status": "authenticated"}
 
 
