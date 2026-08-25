@@ -11,6 +11,7 @@ app = Flask(__name__)
 # Locked down CORS to allow only your site
 ALLOWED_ORIGINS = [
     "https://gd-studios.netlify.app",
+    "https://gd-studios.netlify.app/",
     "http://localhost:3000",
     "http://127.0.0.1:5500"
 ]
@@ -30,7 +31,7 @@ def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     
-    # Table 1: Users (Admins & Visitors)
+    # Table 1: Users
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,7 +41,7 @@ def init_db():
         )
     ''')
     
-    # Table 2: Persistent Downloads & Links for the Site
+    # Table 2: Downloads & Items
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +54,7 @@ def init_db():
         )
     ''')
     
-    # Create Default Admin User if non-existent (ROKO)
+    # Create Default Admin User (ROKO)
     cursor.execute("SELECT * FROM users WHERE username = 'ROKO'")
     if not cursor.fetchone():
         default_admin_pw = generate_password_hash("Gorav@1234567890")
@@ -64,8 +65,15 @@ def init_db():
 
 init_db()
 
-# --- AUTH ROUTES ---
+# --- HEALTH CHECK ROUTE ---
+@app.route('/', methods=['GET'])
+def health_check():
+    return jsonify({
+        "status": "online",
+        "message": "GD Studios Backend API is active and running!"
+    }), 200
 
+# --- AUTH ROUTES ---
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json() or {}
@@ -111,12 +119,9 @@ def login():
 
     return jsonify({"error": "Invalid username or password"}), 401
 
-
 # --- DATA & LINK MANAGEMENT ROUTES ---
-
 @app.route('/items', methods=['GET'])
 def get_items():
-    """Returns all links and downloads stored in Render's database"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     cursor.execute("SELECT id, title, category, description, download_url, tag, status FROM items")
@@ -133,7 +138,6 @@ def get_items():
 
 @app.route('/items', methods=['POST'])
 def add_item():
-    """Allows Admin to post a new link (Drive, ISO, EXE, Zip, Game)"""
     auth_header = request.headers.get('Authorization', '')
     if not auth_header.startswith("Bearer "):
         return jsonify({"error": "Unauthorized"}), 401
