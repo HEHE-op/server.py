@@ -10,10 +10,10 @@ import sqlite3
 
 app = FastAPI()
 
-# Enable CORS for Netlify and localhost
+# 1. Enable CORS for Netlify frontend and local testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows requests from Netlify and all origins
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -22,7 +22,7 @@ app.add_middleware(
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
-# Load from environment, not hardcoded. Set this in Render's Environment tab:
+# 2. Environment Variables & Constants
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-only-fallback-change-me")
 ALGORITHM = "HS256"
 TOKEN_LIFETIME_DAYS = 30
@@ -34,7 +34,7 @@ DB_FILE = "beast_ai_users.db"
 
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             username TEXT PRIMARY KEY,
@@ -43,6 +43,16 @@ def get_db():
         )
     """)
     return conn
+
+
+def get_client_ip(request: Request) -> str:
+    """Extracts the true client IP address behind Render's proxy/load balancer."""
+    if not request:
+        return "unknown"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
 
 class AuthData(BaseModel):
@@ -68,20 +78,20 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security), 
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid session token.")
 
-    current_ip = request.client.host if request else None
+    current_ip = get_client_ip(request)
     if payload.get("ip") != current_ip:
         raise HTTPException(status_code=401, detail="IP changed — please log in again.")
 
     return payload["sub"]
 
 
-# FIX: Added Root route so GET / doesn't throw handling errors
+# --- ROUTES ---
+
 @app.get("/")
 def read_root():
-    return {"status": "active", "message": "GD Studios FastAPI Backend is running!"}
+    return {"status": "active", "message": "GD Studios API is running!"}
 
 
-# FIX: Keep-alive endpoint for UptimeRobot
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
@@ -97,6 +107,7 @@ def register(data: AuthData, request: Request):
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
 
+    client_ip = get_client_ip(request)
     conn = get_db()
     existing = conn.execute("SELECT username FROM users WHERE username = ?", (data.username,)).fetchone()
     if existing:
@@ -104,8 +115,10 @@ def register(data: AuthData, request: Request):
         raise HTTPException(status_code=400, detail="Username already exists!")
 
     hashed_pwd = pwd_context.hash(data.password)
-    conn.execute("INSERT INTO users (username, password_hash, last_login_ip) VALUES (?, ?, ?)",
-                 (data.username, hashed_pwd, request.client.host))
+    conn.execute(
+        "INSERT INTO users (username, password_hash, last_login_ip) VALUES (?, ?, ?)",
+        (data.username, hashed_pwd, client_ip)
+    )
     conn.commit()
     conn.close()
     return {"message": "User registered successfully!"}
@@ -120,7 +133,7 @@ def login(data: AuthData, request: Request):
         conn.close()
         raise HTTPException(status_code=401, detail="Invalid credentials!")
 
-    client_ip = request.client.host
+    client_ip = get_client_ip(request)
     conn.execute("UPDATE users SET last_login_ip = ? WHERE username = ?", (client_ip, data.username))
     conn.commit()
     conn.close()
