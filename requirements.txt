@@ -6,3 +6,12 @@ python-multipart
 passlib==1.7.4
 bcrypt==4.0.1
 PyJWT
+fastapi
+uvicorn
+gunicorn
+pydantic
+python-multipart
+passlib==1.7.4
+bcrypt==4.0.1
+PyJWT
+email-validator
